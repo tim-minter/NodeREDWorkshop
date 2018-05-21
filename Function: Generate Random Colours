@@ -1,0 +1,5 @@
+msg.red = Math.floor((Math.random() * 256) + 0);
+msg.green = Math.floor((Math.random() * 256) + 0);
+msg.blue = Math.floor((Math.random() * 256) + 0);
+msg.payload = "rgb("+msg.red+","+msg.green+","+msg.blue+")";
+return msg;
