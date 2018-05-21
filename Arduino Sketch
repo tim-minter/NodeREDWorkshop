@@ -1,0 +1,224 @@
+/* 
+ * Copyright 2018 IBM Tim Minter
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * apache.org/licenses/LICEN…
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ 
+*/
+
+// You will need to install all the libraries listed in the includes section via the Arduino Library Manager.
+
+// If using the setup_wifiHotSpot option....
+// If the board is started, and a known wifi connection is available, it will connect automatically. 
+// If no known connection is found the board will switch to access point mode and a wifi network will be created with the ACCESS_POINT_NAME set below. 
+// Using anotherdevice you cna the connect to that wifi connection using the ACCESS_POINT_PASSWORD set below.
+// Your browser will be opened to a configuration page where you can set up the wifi credentials for this board.
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// This section is where you can configure all the things that need configuring 
+
+// wifi setup
+const char* WIFI_NETWORK_NAME = "eaglelabsToYou";
+const char* WIFI_PASSWORD = "eagle2You";
+
+// update this with the Broker address from IBM Watson IoT Platform
+const char* BROKER = "nzs2ny.messaging.internetofthings.ibmcloud.com";
+// update this with the Client ID in the format d:{org_id}:{device_type}:{device_id}
+const char* CLIENTID = "d:nzs2ny:wemos:thing13";
+// update this with the authentcation token
+const char* DEVICE_AUTH_TOKEN = "thingthing";
+
+//LED (Neopixel) setup
+#define LED_CONTROL_PIN D1
+#define NUMBER_OF_LEDS_CONNECTED 3 
+
+//servo setup
+#define SERVO_CONTROL_PIN D2
+
+//stepper setup
+#define STEPPER_STEP_CONTROL_PIN 0 // this is D3
+#define STEPPER_DIRECTION_CONTROL_PIN 2 // this is D4 
+
+//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 
+//IoT and wifi libraries to include
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+
+//LED (Neopixel) libray to include
+#include <Adafruit_NeoPixel.h>
+
+//stepper motor control library to include
+#include <AccelStepper.h>
+
+//servo control library to include
+#include <Servo.h>
+
+//wifi includes
+#include <DNSServer.h> //Local DNS Server used for redirecting all requests to the configuration portal
+#include <ESP8266WebServer.h> //Local WebServer used to serve the configuration portal
+#include <WiFiManager.h> //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
+
+//json crunchig library
+#include <ArduinoJson.h>
+
+// Define a stepper and the pins it will use
+AccelStepper stepper(AccelStepper::DRIVER, STEPPER_STEP_CONTROL_PIN, STEPPER_DIRECTION_CONTROL_PIN); 
+
+//define servo (the pins will be defined later)
+Servo servo1;  // create servo object to control a servo
+
+// subscribe to this for commands:
+#define COMMAND_TOPIC "iot-2/cmd/command/fmt/text"
+ 
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMBER_OF_LEDS_CONNECTED, LED_CONTROL_PIN, NEO_GRB + NEO_KHZ800);
+ 
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+int stepperPosition = 0;
+int servoPosition = 90;
+
+void setup() {
+  Serial.begin(9600);
+  Serial.println("Hello world!");  // prints hello with ending line break 
+  strip.setBrightness(180); //max is255
+  strip.setPixelColor(0, strip.Color(255,0,0));
+  strip.show();
+  delay(500);
+  Serial.println();
+  Serial.print("MAC: ");
+  Serial.println(WiFi.macAddress());
+  servo1.attach(SERVO_CONTROL_PIN);  // attaches the servo on pin D4 to the servo object
+  stepper.setMaxSpeed(2000); //set the maxspeed the motor will go (if set too high it will fail)
+  stepper.setAcceleration(1000);
+  strip.begin();
+  strip.show(); // Initialize all pixels to 'off'
+  setup_wifi();
+  client.setServer(BROKER, 1883);
+  client.setCallback(callback);
+  strip.setPixelColor(0, strip.Color(0,0,0));
+  strip.show();
+}
+
+void setup_wifi() {
+  // Start by connecting to the WiFi network   
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(WIFI_NETWORK_NAME);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_NETWORK_NAME, WIFI_PASSWORD);
+  wait_for_wifi();
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP()); 
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.println("Message Received");
+  const size_t bufferSize = JSON_OBJECT_SIZE(5) + 30;
+  DynamicJsonBuffer jsonBuffer(bufferSize);
+  const char* json = (char*)payload;
+  JsonObject& root = jsonBuffer.parseObject(json);
+
+  int LEDAddress = root["A"]; 
+  int R = root["R"]; 
+  int G = root["G"]; 
+  int B = root["B"];
+
+  if(LEDAddress && R && G && B){
+    //change the colour of the specified LED (if the colut and position has been sent
+    strip.setPixelColor(LEDAddress, strip.Color(R,G,B));
+    strip.show();
+  } else if (R && G && B){
+    //change the colour of all LEDs in any attached strip if position has not been sent
+    for(uint16_t i=0; i<strip.numPixels(); i++) {
+      strip.setPixelColor(i, strip.Color(R,G,B));
+      strip.show();
+    }
+  }
+  if(root["servoPosition"]){ //only if a value for this has been sent take action otherwise don't set the position
+    servoPosition = root["servoPosition"];
+  }
+  if(root["stepperPosition"]){ //only if a value for this has been sent take action otherwise don't set the position
+    stepperPosition = root["stepperPosition"];
+  }
+  Serial.println(servoPosition);
+  Serial.println(stepperPosition);
+}
+
+void wait_for_wifi(){
+  Serial.println("waiting for Wifi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    strip.setPixelColor(1, strip.Color(255,0,0));
+    strip.show();
+    delay(500);
+    strip.setPixelColor(1, strip.Color(0,0,0));
+    strip.show();
+  }
+  Serial.println("");
+  Serial.println("WiFi connected");
+}
+
+void reconnect() {
+  boolean first = true;
+  // Loop until we're reconnected to the broker  
+  while (!client.connected()) {
+    if (WiFi.status() != WL_CONNECTED) {
+      wait_for_wifi();
+      first = true;
+    }
+    Serial.print("Attempting MQTT connection...");
+    if (first) {
+      first = false;
+    } 
+    // Attempt to connect
+    if (client.connect(CLIENTID, "use-token-auth", DEVICE_AUTH_TOKEN)) {
+      Serial.println("connected");
+      strip.setPixelColor(1, strip.Color(0,0,255));
+      strip.show();
+    } 
+    else {
+      Serial.print("failed, rc=");
+      Serial.println(client.state());
+      strip.setPixelColor(1, strip.Color(0,255,0));
+      strip.show();
+      delay(500);
+      strip.setPixelColor(1, strip.Color(0,0,0));
+      strip.show();
+      delay(500);
+      strip.setPixelColor(1, strip.Color(0,255,0));
+      strip.show();
+    }
+  }
+  // subscribe to the command topic
+  client.subscribe(COMMAND_TOPIC);
+}
+
+void loop() {
+ 
+  if (!client.connected()) {
+    reconnect();
+  }
+
+  // service the MQTT (IoT) client
+  client.loop();
+
+  //move the stepper
+  if (stepper.distanceToGo() == 0){
+    stepper.moveTo(stepperPosition);
+  } 
+  stepper.run();
+  
+  //move the servo
+  servo1.write(servoPosition); //servo 1
+}
