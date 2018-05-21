@@ -1,0 +1,8 @@
+{
+  "servoPosition":{{payload}}
+}
+
+//Remove this line and those below it when you paste it into the node
+// Format = Moustache template
+// Syntax Highlight = Moustache
+// Output as = Parsed JSON
