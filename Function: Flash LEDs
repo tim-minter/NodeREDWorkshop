@@ -1,0 +1,8 @@
+msg.payload = "rgb(255,0,0)";
+node.send(msg);
+wait(1000);
+msg.payload = "rgb(0,0,255)";
+node.send(msg);
+wait(1000);
+msg.payload = "rgb(0,0,0)";
+return msg;
